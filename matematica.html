@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Mundo da Matemática 🌟</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -25,16 +25,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .start-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
 
 /* WORLD MAP */
-.map-wrap{position:relative}
-.map-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.map-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .player-tag{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;color:#0f172a}
 .player-tag .av{font-size:28px}
 .total-pts{background:#fef9c3;color:#854d0e;font-size:13px;font-weight:700;padding:4px 10px;border-radius:99px}
-.station-info{border-radius:14px;padding:12px;margin-top:10px;text-align:center}
-.station-info .si-title{font-size:16px;font-weight:800;color:#0f172a;margin-bottom:4px}
-.station-info .si-desc{font-size:13px;color:#64748b;margin-bottom:10px}
-.play-now-btn{padding:13px 32px;font-size:16px;font-weight:800;background:linear-gradient(135deg,#f59e0b,#ef4444);color:white;border:none;border-radius:14px;cursor:pointer;transition:all .2s;box-shadow:0 4px 12px rgba(239,68,68,.35)}
-.play-now-btn:hover{transform:scale(1.04)}
+
+/* STATION PANEL */
+.st-panel{border-radius:16px;padding:14px 16px;margin-top:10px;border:2.5px solid transparent;transition:background .25s,border-color .25s}
+.st-panel-top{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.st-icon-big{font-size:36px;line-height:1;flex-shrink:0}
+.st-info{flex:1;min-width:0}
+.st-name{font-size:17px;font-weight:800;color:#0f172a;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st-mod{font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;display:inline-block;margin-bottom:3px}
+.st-topic{font-size:12px;color:#64748b;line-height:1.3}
+.st-status{font-size:12px;font-weight:600;margin-left:auto;flex-shrink:0;padding:4px 10px;border-radius:99px;white-space:nowrap}
+.st-status.done{background:#d1fae5;color:#065f46}
+.st-status.cur{background:#fef9c3;color:#854d0e}
+.st-status.next{background:#f1f5f9;color:#64748b}
+.play-now-btn{width:100%;padding:13px;font-size:16px;font-weight:800;color:white;border:none;border-radius:14px;cursor:pointer;transition:all .2s}
+.play-now-btn:hover{filter:brightness(1.08);transform:scale(1.02)}
 .map-link{background:none;border:none;cursor:pointer;font-size:12px;color:#94a3b8;padding:0}
 .map-link:hover{color:#64748b}
 
@@ -207,6 +216,45 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div id="app"></div>
 </div>
 <script>
+/* ── DB ── */
+let _db=null;
+(async()=>{try{_db=await claude.use('db')}catch(e){_db=null}})();
+
+async function logSession(){
+  if(!_db||!P.name||!S.score)return;
+  try{
+    const ts=Date.now();
+    const bonusMult=S._dailyBonus?2:1;
+    await _db.collection('sessions').doc(String(ts)).set({
+      player:P.name,
+      avatar:P.avatar,
+      mod:S.mod,
+      topic:S.topic,
+      score:S.score*bonusMult,
+      baseScore:S.score,
+      correct:S.qNum,
+      maxStreak:S.maxStreak,
+      livesLeft:S.lives,
+      stars:S.stars,
+      daily:S._dailyBonus?true:false,
+      ts,
+      date:new Date(ts).toISOString().slice(0,10)
+    });
+    // Update per-player aggregate
+    const psnap=await _db.doc('players/'+encodePlayer(P.name)).get();
+    const prev=psnap.exists?psnap.data():{player:P.name,avatar:P.avatar,totalScore:0,sessions:0,bestScore:0,lastSeen:''};
+    await _db.doc('players/'+encodePlayer(P.name)).set({
+      player:P.name,
+      avatar:P.avatar,
+      totalScore:(prev.totalScore||0)+(S.score*bonusMult),
+      sessions:(prev.sessions||0)+1,
+      bestScore:Math.max(prev.bestScore||0,S.score*bonusMult),
+      lastSeen:new Date(ts).toISOString().slice(0,10)
+    });
+  }catch(e){}
+}
+function encodePlayer(n){return n.toLowerCase().replace(/[^a-z0-9]/g,'-').slice(0,50)||'player'}
+
 /* ── SOUNDS ── */
 const AC=window.AudioContext||window.webkitAudioContext;
 let actx=null;
@@ -419,12 +467,28 @@ function genDistQ(tid){
     multHint:`💡 Se ${groups} × ${each} = ${total}, então ${total} ÷ ${groups} = ${each}`,
     choices:genChoices(each)};
 }
+const ALL_TOPICS=['add_easy','add_carry','sub_easy','sub_borrow','algo_add','algo_add_c','algo_sub','algo_sub_b','mult_2','mult_3','mult_45','mult_10','dist_2','dist_3','dist_45','dist_10'];
+
 function genQ(tid){
+  if(tid==='daily')tid=pick(ALL_TOPICS);
   if(tid.startsWith('add')||tid.startsWith('sub'))return genWordQ(tid);
   if(tid.startsWith('algo'))return genAlgoQ(tid);
   if(tid.startsWith('mult'))return genMultQ(tid);
   if(tid.startsWith('dist'))return genDistQ(tid);
   return genWordQ('add_easy');
+}
+
+function modFromTid(tid){
+  if(!tid)return'soma';
+  if(tid.startsWith('add')||tid.startsWith('sub'))return'soma';
+  if(tid.startsWith('algo'))return'algo';
+  if(tid.startsWith('mult'))return'mult';
+  if(tid.startsWith('dist'))return'dist';
+  return'soma';
+}
+function modFromQtype(type){
+  const m={word:'soma',algo:'algo',mult:'mult',dist:'dist'};
+  return m[type]||'soma';
 }
 
 /* ── VISUAL RENDERERS ── */
@@ -517,7 +581,7 @@ loadPlayer();
 
 /* ── STATE ── */
 const T=60,TQ=10;
-let S={screen:P.name?'map':'onboard',mod:null,topic:null,score:0,streak:0,maxStreak:0,lives:3,qNum:0,q:null,answered:false,selected:null,fb:'',fbType:'',timer:T,tid:null,stars:0,narratorMsg:'',narratorState:'',_fastAns:false,newMedals:[]};
+let S={screen:P.name?'map':'onboard',mod:null,topic:null,score:0,streak:0,maxStreak:0,lives:3,qNum:0,q:null,answered:false,selected:null,fb:'',fbType:'',timer:T,tid:null,stars:0,narratorMsg:'',narratorState:'',_fastAns:false,newMedals:[],_selSt:null};
 
 function startTimer(){
   clearInterval(S.tid);S.timer=T;
@@ -563,18 +627,21 @@ function onAns(val,timeout){
 }
 
 function finishGame(){
-  // Update world progress
   if(P.name&&S.score>0){
-    const prev=P.totalScore;
-    P.totalScore+=S.score;
-    P.station=Math.floor(P.totalScore/PTS_PER_STATION);
-    if(S.mod==='soma')P.somaRounds=(P.somaRounds||0)+1;
-    if(S.mod==='mult')P.multRounds=(P.multRounds||0)+1;
-    if(S.mod==='dist')P.distRounds=(P.distRounds||0)+1;
-    if(S.mod==='algo')P.algoRounds=(P.algoRounds||0)+1;
+    if(!S._offTrack){
+      P.totalScore+=S.score;
+      P.station=Math.floor(P.totalScore/PTS_PER_STATION);
+    }
+    if(S.mod!=='daily'){
+      if(S.mod==='soma')P.somaRounds=(P.somaRounds||0)+1;
+      if(S.mod==='mult')P.multRounds=(P.multRounds||0)+1;
+      if(S.mod==='dist')P.distRounds=(P.distRounds||0)+1;
+      if(S.mod==='algo')P.algoRounds=(P.algoRounds||0)+1;
+    }
     const prevMedals=[...P.medals];
     S.newMedals=checkMedals(prevMedals);
     savePlayer();
+    logSession();
   }
   S.screen='end';render();
 }
@@ -584,7 +651,7 @@ function startGame(modId,topicId){
   S={...S,screen:'game',mod:modId,topic:topicId,score:0,streak:0,maxStreak:0,lives:3,qNum:0,answered:false,selected:null,fb:'',fbType:'',stars:0,_fastAns:false,newMedals:[],narratorMsg:pick(NARRATOR_IDLE),narratorState:''};
   S.q=genQ(topicId);render();startTimer();
 }
-function goHome(){clearInterval(S.tid);S.screen=P.name?'map':'onboard';render()}
+function goHome(){clearInterval(S.tid);S._selSt=null;S._offTrack=false;S.screen=P.name?'map':'onboard';render()}
 function goTopics(modId){S.screen='topics';S.mod=modId;render()}
 
 /* ── RENDER ── */
@@ -601,21 +668,35 @@ function render(){
 /* ── ONBOARD ── */
 let _selAv='';
 function renderOnboard(app){
+  const nameVal=document.getElementById('pname')?.value||'';
   app.innerHTML=`<div class="onboard fade-in">
     <div style="font-size:60px;margin-bottom:8px">🌍</div>
     <div class="onboard-title">Mundo da Matemática!</div>
     <p class="onboard-sub">Crie seu personagem para a grande aventura!</p>
-    <p style="font-size:14px;font-weight:700;color:#374151;margin-bottom:8px">Qual é o seu nome?</p>
-    <input class="name-input" id="pname" type="text" maxlength="16" placeholder="Digite seu nome..." oninput="updOnboard()" />
-    <p style="font-size:14px;font-weight:700;color:#374151;margin:1.2rem 0 6px">Escolha seu personagem:</p>
+
+    <p style="font-size:14px;font-weight:700;color:#374151;margin-bottom:8px">Escolha seu personagem:</p>
     <div class="avatar-grid">
       ${AVATARS.map(a=>`<button class="av-btn${_selAv===a?' selected':''}" onclick="pickAv('${a}')">${a}</button>`).join('')}
     </div>
-    <button class="start-btn" id="sbtn" onclick="doOnboard()" disabled>Começar Aventura! 🚀</button>
+
+    <p style="font-size:14px;font-weight:700;color:#374151;margin:1rem 0 8px">Qual é o seu nome?</p>
+    <input class="name-input" id="pname" type="text" maxlength="16" placeholder="Digite seu nome..." value="${nameVal.replace(/"/g,'&quot;')}" oninput="updOnboard()" />
+
+    <button class="start-btn" id="sbtn" onclick="doOnboard()" ${(_selAv&&nameVal.trim().length>=2)?'':'disabled'}>Começar Aventura! 🚀</button>
   </div>`;
+  // re-focus name field only if avatar was just picked and name not yet set
+  const inp=document.getElementById('pname');
+  if(inp&&_selAv&&!inp.value)inp.focus();
 }
-function pickAv(a){_selAv=a;renderOnboard(document.getElementById('app'));const n=document.getElementById('pname');if(n)n.focus()}
-function updOnboard(){const n=document.getElementById('pname').value.trim();const b=document.getElementById('sbtn');if(b)b.disabled=!(n.length>=2&&_selAv)}
+function pickAv(a){
+  const prev=document.getElementById('pname')?.value||'';
+  _selAv=a;
+  renderOnboard(document.getElementById('app'));
+  const inp=document.getElementById('pname');
+  if(inp){inp.value=prev;if(!prev)inp.focus();}
+  updOnboard();
+}
+function updOnboard(){const n=document.getElementById('pname')?.value.trim()||'';const b=document.getElementById('sbtn');if(b)b.disabled=!(n.length>=2&&_selAv)}
 function doOnboard(){
   const n=document.getElementById('pname').value.trim();
   if(n.length<2||!_selAv)return;
@@ -624,74 +705,103 @@ function doOnboard(){
 }
 
 /* ── WORLD MAP ── */
+const BIOME_NAMES=['🌤 Pradaria','🌿 Floresta','🏜 Deserto','🌌 Montanha Mágica'];
+const MOD_COLORS={soma:'#10b981',algo:'#3b82f6',mult:'#8b5cf6',dist:'#f59e0b'};
+const MOD_BG={soma:'#d1fae5',algo:'#dbeafe',mult:'#ede9fe',dist:'#fef3c7'};
+const MOD_TEXT={soma:'#065f46',algo:'#1e3a5f',mult:'#3b1f8c',dist:'#78350f'};
+
+function selectStation(i){S._selSt=i;render()}
+
 function renderMap(app){
   const st=P.station;
   const curIdx=st%MAP_STATIONS.length;
-  const cur=MAP_STATIONS[curIdx];
   const lap=Math.floor(st/MAP_STATIONS.length);
-  const ptsInto=P.totalScore-(st*PTS_PER_STATION);
-  const progPct=Math.min(100,Math.max(0,(ptsInto/PTS_PER_STATION)*100));
   const total=MAP_STATIONS.length;
+  const selIdx=S._selSt!=null?S._selSt:curIdx;
+  const selStn=MAP_STATIONS[selIdx];
+  const selGlobal=lap*total+selIdx;
+  const isDone=selGlobal<st;
+  const isCur=selIdx===curIdx;
 
-  // Build winding snake path
+  // Station grid coordinates (snake path)
   const pts=[];
   for(let i=0;i<total;i++){
     const row=Math.floor(i/4),col=i%4;
-    const xPos=(row%2===0)?50+col*115:415-col*115;
-    pts.push({x:xPos,y:55+row*90});
+    pts.push({x:(row%2===0)?50+col*115:415-col*115,y:55+row*90});
   }
 
-  // SVG path
   let pathD=`M ${pts[0].x} ${pts[0].y}`;
   for(let i=1;i<pts.length;i++){const p=pts[i-1],c=pts[i];pathD+=` Q ${p.x} ${c.y} ${c.x} ${c.y}`}
 
-  // Biome backgrounds per row
   const biomes=[
-    {y0:0,  y1:130, c1:'#bfdbfe',c2:'#dbeafe'},  // sky blue - plains
-    {y0:130,y1:220, c1:'#bbf7d0',c2:'#dcfce7'},  // green - forest
-    {y0:220,y1:310, c1:'#fde68a',c2:'#fef3c7'},  // yellow - desert
-    {y0:310,y1:400, c1:'#e9d5ff',c2:'#f5f3ff'},  // purple - mountains
+    {y0:0,  y1:130, c1:'#bfdbfe',c2:'#dbeafe'},
+    {y0:130,y1:220, c1:'#bbf7d0',c2:'#dcfce7'},
+    {y0:220,y1:310, c1:'#fde68a',c2:'#fef3c7'},
+    {y0:310,y1:400, c1:'#e9d5ff',c2:'#f5f3ff'},
   ];
-  const biomeSvg=biomes.map(b=>`<linearGradient id="b${b.y0}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${b.c1}"/><stop offset="100%" stop-color="${b.c2}"/></linearGradient><rect x="0" y="${b.y0}" width="460" height="${b.y1-b.y0}" fill="url(#b${b.y0})"/>`).join('');
+  const biomeSvg=biomes.map((b,bi)=>`<linearGradient id="b${b.y0}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${b.c1}"/><stop offset="100%" stop-color="${b.c2}"/></linearGradient><rect x="0" y="${b.y0}" width="460" height="${b.y1-b.y0}" fill="url(#b${b.y0})"/>`).join('');
+
+  // Biome labels
+  const biomeLabels=biomes.map((b,bi)=>`<text x="6" y="${b.y0+14}" font-size="9" fill="#94a3b8" font-weight="700">${BIOME_NAMES[bi]}</text>`).join('');
 
   const stationsHtml=pts.map((p,i)=>{
     const stn=MAP_STATIONS[i];
     const globalIdx=lap*total+i;
     const done=globalIdx<st;
-    const isCur=i===curIdx;
-    const sz=isCur?24:18;
-    const op=done?1:isCur?1:0.45;
-    const pulse=isCur?`<circle cx="${p.x}" cy="${p.y}" r="30" fill="none" stroke="${stn.color}" stroke-width="2.5" stroke-dasharray="5 4" opacity="0.6"><animateTransform attributeName="transform" type="rotate" from="0 ${p.x} ${p.y}" to="360 ${p.x} ${p.y}" dur="8s" repeatCount="indefinite"/></circle>`:'';
-    return`${pulse}<circle cx="${p.x}" cy="${p.y}" r="${sz}" fill="${done||isCur?stn.color:'#94a3b8'}" stroke="white" stroke-width="3" opacity="${op}"/>
-    <text x="${p.x}" y="${p.y+6}" text-anchor="middle" font-size="${isCur?16:12}">${stn.icon}</text>
-    ${done?`<text x="${p.x+sz-2}" y="${p.y-sz+4}" font-size="11">✅</text>`:''}
-    <text x="${p.x}" y="${p.y+sz+12}" text-anchor="middle" font-size="8" fill="${isCur?stn.color:'#64748b'}" opacity="${isCur?1:op}">${i+1}</text>`;
+    const isCurSt=i===curIdx;
+    const isSel=i===selIdx;
+    const sz=isCurSt||isSel?24:18;
+    const op=done||isCurSt?1:0.55;
+    const selRing=isSel&&!isCurSt?`<circle cx="${p.x}" cy="${p.y}" r="${sz+7}" fill="none" stroke="${stn.color}" stroke-width="3" opacity="0.8"/>`:'';
+    const pulse=isCurSt?`<circle cx="${p.x}" cy="${p.y}" r="32" fill="none" stroke="${stn.color}" stroke-width="2.5" stroke-dasharray="5 4" opacity="0.6"><animateTransform attributeName="transform" type="rotate" from="0 ${p.x} ${p.y}" to="360 ${p.x} ${p.y}" dur="8s" repeatCount="indefinite"/></circle>`:'';
+    return`<g onclick="selectStation(${i})" style="cursor:pointer">
+      ${pulse}${selRing}
+      <circle cx="${p.x}" cy="${p.y}" r="${sz}" fill="${done||isCurSt?stn.color:'#94a3b8'}" stroke="${isSel?'white':'white'}" stroke-width="${isSel?3.5:3}" opacity="${op}"/>
+      <text x="${p.x}" y="${p.y+6}" text-anchor="middle" font-size="${isCurSt?16:12}">${stn.icon}</text>
+      ${done?`<text x="${p.x+sz-2}" y="${p.y-sz+4}" font-size="11">✅</text>`:''}
+      <text x="${p.x}" y="${p.y+sz+13}" text-anchor="middle" font-size="8" fill="${isCurSt||isSel?stn.color:'#64748b'}" opacity="${isCurSt||isSel?1:op}">${i+1}</text>
+    </g>`;
   }).join('');
 
   const cp=pts[curIdx];
-  const charEl=`<text x="${cp.x}" y="${cp.y-32}" text-anchor="middle" font-size="22" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.25))">${P.avatar}<animateTransform attributeName="transform" type="translate" values="0,0;0,-4;0,0" dur="1.5s" repeatCount="indefinite"/></text>`;
+  const charEl=`<text x="${cp.x}" y="${cp.y-32}" text-anchor="middle" font-size="22" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.25))" pointer-events="none">${P.avatar}<animateTransform attributeName="transform" type="translate" values="0,0;0,-4;0,0" dur="1.5s" repeatCount="indefinite"/></text>`;
 
   const svgH=pts[pts.length-1].y+55;
 
-  const unlockedMedals=MEDAL_DEFS.filter(m=>P.medals.includes(m.id));
-  const medalBar=unlockedMedals.length?`<div style="margin-top:8px"><div style="font-size:12px;color:#64748b;margin-bottom:4px;text-align:center">Medalhas conquistadas:</div><div class="medals-bar">${MEDAL_DEFS.map(m=>`<span class="medal${P.medals.includes(m.id)?'':' locked'}" title="${m.name}: ${m.desc}">${m.icon}</span>`).join('')}</div></div>`:'';
+  // Station panel
+  const selMod=MODS.find(x=>x.id===selStn.mod);
+  const selTopic=selMod?.topics.find(t=>t.id===selStn.topic);
+  const statusLabel=isDone?'<span class="st-status done">✅ Concluída</span>':isCur?'<span class="st-status cur">▶ Sua vez!</span>':'<span class="st-status next">🗺 Próxima</span>';
+  const btnLabel=isDone?`🔁 Jogar de novo`:isCur?`▶ Jogar Agora!`:`🗺 Ir para esta estação`;
+  const btnGrad=isDone?`background:linear-gradient(135deg,#10b981,#059669)`:isCur?`background:linear-gradient(135deg,#f59e0b,#ef4444);box-shadow:0 4px 12px rgba(239,68,68,.35)`:
+    `background:linear-gradient(135deg,${selStn.color},${selStn.color}bb)`;
 
-  // Daily challenge indicator
+  const ptsInto=P.totalScore-(st*PTS_PER_STATION);
+  const progPct=Math.min(100,Math.max(0,(ptsInto/PTS_PER_STATION)*100));
+
   const today=new Date().toISOString().slice(0,10);
   const dailyDone=P.lastDaily===today;
-  const dailyBtn=`<div style="margin-top:10px;padding:10px 14px;background:${dailyDone?'#f1f5f9':'#fef9c3'};border:2px solid ${dailyDone?'#e2e8f0':'#fde68a'};border-radius:12px;text-align:center">
-    <div style="font-size:13px;font-weight:700;color:${dailyDone?'#94a3b8':'#78350f'}">${dailyDone?'✅ Desafio diário concluído!':'⚡ Desafio Diário — pontos em dobro!'}</div>
-    ${!dailyDone?`<button class="play-now-btn" style="margin-top:8px;padding:9px 20px;font-size:14px" onclick="startDailyChallenge()">Jogar Desafio do Dia!</button>`:''}
-  </div>`;
+  const dailyStrip=isCur&&!dailyDone?`<div style="margin-top:8px;padding:8px 12px;background:#fef9c3;border:1.5px solid #fde68a;border-radius:10px;display:flex;align-items:center;gap:8px;justify-content:space-between">
+    <span style="font-size:13px;font-weight:700;color:#78350f">⚡ Desafio Diário — pontos em dobro!</span>
+    <button class="play-now-btn" style="width:auto;padding:7px 14px;font-size:13px;background:linear-gradient(135deg,#f59e0b,#d97706)" onclick="startDailyChallenge()">Jogar!</button>
+  </div>`:'';
+  const dailyDoneStrip=isCur&&dailyDone?`<div style="margin-top:8px;padding:8px 12px;background:#f1f5f9;border:1.5px solid #e2e8f0;border-radius:10px;font-size:12px;font-weight:600;color:#94a3b8;text-align:center">✅ Desafio diário concluído!</div>`:'';
+
+  const unlockedMedals=MEDAL_DEFS.filter(m=>P.medals.includes(m.id));
+  const medalBar=unlockedMedals.length?`<details style="margin-top:10px"><summary style="font-size:12px;color:#64748b;cursor:pointer;list-style:none;display:flex;align-items:center;gap:4px">🏅 ${unlockedMedals.length} medalha${unlockedMedals.length>1?'s':''} conquistada${unlockedMedals.length>1?'s':''}</summary><div class="medals-bar" style="padding-top:8px">${MEDAL_DEFS.map(m=>`<span class="medal${P.medals.includes(m.id)?'':' locked'}" title="${m.name}: ${m.desc}">${m.icon}</span>`).join('')}</div></details>`:'';
 
   app.innerHTML=`<div class="fade-in">
     <div class="map-header">
       <div class="player-tag"><span class="av">${P.avatar}</span> ${P.name}</div>
-      <div class="total-pts">⭐ ${P.totalScore} pts</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="total-pts">⭐ ${P.totalScore} pts</div>
+        <button class="map-link" onclick="changePlayer()" title="Trocar jogador">👤</button>
+      </div>
     </div>
-    <div style="border-radius:14px;overflow:hidden;border:2px solid #e2e8f0;margin-bottom:4px">
+    <div style="border-radius:14px;overflow:hidden;border:2px solid #e2e8f0">
     <svg viewBox="0 0 460 ${svgH}" width="100%" style="display:block">
       <defs>${biomeSvg}</defs>
+      ${biomeLabels}
       <ellipse cx="80" cy="25" rx="38" ry="16" fill="white" opacity=".75"/>
       <ellipse cx="112" cy="20" rx="26" ry="12" fill="white" opacity=".75"/>
       <ellipse cx="330" cy="35" rx="42" ry="17" fill="white" opacity=".65"/>
@@ -705,36 +815,47 @@ function renderMap(app){
       ${charEl}
     </svg>
     </div>
-    <div class="station-info" style="background:${cur.color}18;border:2px solid ${cur.color}55">
-      <div class="si-title">${cur.icon} ${cur.name}</div>
-      <div class="si-desc">Desafio: ${MODS.find(x=>x.id===cur.mod)?.name}</div>
-      <div style="margin-bottom:10px">
-        <div style="font-size:12px;color:#64748b;margin-bottom:4px">Próxima estação: ${Math.round(progPct)}%</div>
-        <div style="height:9px;background:#e2e8f0;border-radius:99px;overflow:hidden">
-          <div style="height:100%;width:${progPct}%;background:${cur.color};border-radius:99px;transition:width .5s"></div>
+
+    <div class="st-panel" style="background:${selStn.color}14;border-color:${selStn.color}50">
+      <div class="st-panel-top">
+        <div class="st-icon-big">${selStn.icon}</div>
+        <div class="st-info">
+          <div class="st-name">Estação ${selIdx+1} — ${selStn.name}</div>
+          <span class="st-mod" style="background:${MOD_BG[selStn.mod]};color:${MOD_TEXT[selStn.mod]}">${selMod?.icon} ${selMod?.name}</span>
+          <div class="st-topic">${selTopic?.name}${selTopic?.hint?' · '+selTopic.hint:''}</div>
         </div>
+        ${statusLabel}
       </div>
-      <button class="play-now-btn" onclick="startFromMap()">▶ Jogar Agora!</button>
+      ${isCur?`<div style="margin-bottom:10px"><div style="font-size:11px;color:#64748b;margin-bottom:3px">Progresso nesta estação</div><div style="height:8px;background:#e2e8f0;border-radius:99px;overflow:hidden"><div style="height:100%;width:${progPct}%;background:${selStn.color};border-radius:99px;transition:width .5s"></div></div></div>`:''}
+      <button class="play-now-btn" style="${btnGrad}" onclick="playSelected(${selIdx})">${btnLabel}</button>
+      ${dailyStrip}${dailyDoneStrip}
     </div>
-    ${dailyBtn}
     ${medalBar}
-    <div style="text-align:center;margin-top:10px;display:flex;gap:12px;justify-content:center">
-      <button class="map-link" onclick="S.screen='home';render()">🗂 Todos os mundos</button>
-      <button class="map-link" onclick="changePlayer()">👤 Trocar jogador</button>
-    </div>
   </div>`;
 }
 
+function playSelected(idx){
+  const stn=MAP_STATIONS[idx];
+  const curIdx=P.station%MAP_STATIONS.length;
+  if(idx!==curIdx){
+    // Playing a non-current station: don't advance world progress
+    S._offTrack=true;
+  } else {
+    S._offTrack=false;
+  }
+  startGame(stn.mod,stn.topic);
+}
+
 function startFromMap(){
+  S._offTrack=false;
   const cur=MAP_STATIONS[P.station%MAP_STATIONS.length];
   startGame(cur.mod,cur.topic);
 }
 function startDailyChallenge(){
   const today=new Date().toISOString().slice(0,10);
   P.lastDaily=today;savePlayer();
-  S._dailyBonus=true;
-  const cur=MAP_STATIONS[P.station%MAP_STATIONS.length];
-  startGame(cur.mod,cur.topic);
+  S._dailyBonus=true;S._offTrack=false;
+  startGame('daily','daily');
 }
 function changePlayer(){_selAv='';P={name:'',avatar:'',totalScore:0,station:0,medals:[],somaRounds:0,multRounds:0,distRounds:0,algoRounds:0,lastDaily:''};savePlayer();S.screen='onboard';render()}
 
@@ -782,7 +903,9 @@ function renderTopics(app){
 
 /* ── GAME ── */
 function renderGame(app){
-  const q=S.q,m=MODS.find(x=>x.id===S.mod);
+  const q=S.q;
+  const dispModId=S.mod==='daily'?modFromQtype(q.type):S.mod;
+  const m=MODS.find(x=>x.id===dispModId)||MODS[0];
   const progress=(S.qNum/TQ)*100;
   const hearts=[1,2,3].map(i=>`<span class="heart${S.lives<i?' lost':''}">❤️</span>`).join('');
   const starsH=[1,2,3].map(i=>`<span class="star">${i<=S.stars?'⭐':'☆'}</span>`).join('');
@@ -796,16 +919,15 @@ function renderGame(app){
   const stratHtml=S.answered&&q.strat?`<div class="strategy">📐 Estratégia: <b>${q.strat}</b></div>`:'';
   const multHintHtml=S.answered&&q.type==='dist'?`<div class="strategy">${q.multHint}</div>`:'';
   const narratorCl=S.narratorState?` ${S.narratorState}`:'';
-  const dailyTag=S._dailyBonus?`<span class="badge" style="background:#fef9c3;color:#78350f">⚡ Desafio Diário</span>`:'';
+  const modBadge=S.mod==='daily'?`<span class="badge" style="background:#fef9c3;color:#78350f">⚡ Desafio Diário</span><span class="badge b-mod">${m.icon} ${m.name}</span>`:`<span class="badge b-mod">${m.icon} ${m.name}</span>`;
 
   app.innerHTML=`<div>
     <div class="hud">
       <div class="hearts">${hearts}</div>
       <div class="badges">
-        <span class="badge b-mod">${m.icon} ${m.name}</span>
+        ${modBadge}
         <span class="badge b-sc">${S.score} pts</span>
         ${S.streak>=2?`<span class="badge b-str">🔥 ${S.streak}x</span>`:''}
-        ${dailyTag}
       </div>
     </div>
     <div class="tbar"><div class="tfill" id="tf" style="width:100%"></div></div>
@@ -830,7 +952,7 @@ function renderGame(app){
 
 /* ── END ── */
 function renderEnd(app){
-  const m=MODS.find(x=>x.id===S.mod);
+  const m=MODS.find(x=>x.id===S.mod)||MODS[0];
   const s=S.stars;
   const sr=[1,2,3].map(i=>`<span class="star">${i<=s?'⭐':'☆'}</span>`).join('');
   const emoji=s===3?'🏆':s===2?'🌟':'💪';
@@ -855,9 +977,8 @@ function renderEnd(app){
     ${advMoves}
     ${newMedalHtml}
     <div class="btns">
-      ${P.name?`<button class="btn btn-p" style="background:#8b5cf6" onclick="S.screen='map';S._dailyBonus=false;render()">🗺️ Mapa do Mundo</button>`:''}
+      ${P.name?`<button class="btn btn-p" style="background:#8b5cf6" onclick="goHome()">🗺️ Mapa do Mundo</button>`:''}
       <button class="btn btn-p" style="background:${m.color}" onclick="startGame('${S.mod}','${S.topic}')">Jogar de novo</button>
-      <button class="btn btn-s" onclick="goHome()">Início</button>
     </div>
   </div>`;
 }
