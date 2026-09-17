@@ -47,6 +47,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .map-link{background:none;border:none;cursor:pointer;font-size:12px;color:#94a3b8;padding:0}
 .map-link:hover{color:#64748b}
 
+/* WORLD CARDS on map */
+.map-worlds{margin-top:14px}
+.map-worlds-title{font-size:13px;font-weight:700;color:#64748b;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em}
+.map-world-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mwcard{border-radius:14px;padding:10px 12px;cursor:pointer;transition:all .18s;border:2px solid transparent;display:flex;align-items:center;gap:10px}
+.mwcard:hover{transform:scale(1.02)}
+.mwcard.active{border-width:2.5px}
+.mwcard-icon{font-size:26px;line-height:1;flex-shrink:0}
+.mwcard-name{font-size:13px;font-weight:800;margin-bottom:1px}
+.mwcard-desc{font-size:11px;opacity:.75}
+.topics-panel{margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:7px;animation:fadeIn .2s ease}
+.tpbtn{padding:9px 10px;border-radius:12px;border:1.5px solid transparent;cursor:pointer;text-align:left;transition:all .15s;background:white;display:flex;align-items:center;gap:8px}
+.tpbtn:hover{transform:scale(1.02)}
+.tpbtn-icon{font-size:18px;flex-shrink:0}
+.tpbtn-name{font-size:12px;font-weight:700;margin-bottom:1px}
+.tpbtn-hint{font-size:10px;opacity:.7}
+.surprise-btn{width:100%;margin-top:12px;padding:14px;font-size:16px;font-weight:800;background:linear-gradient(135deg,#8b5cf6,#ec4899);color:white;border:none;border-radius:16px;cursor:pointer;transition:all .2s;box-shadow:0 4px 14px rgba(139,92,246,.35);display:flex;align-items:center;justify-content:center;gap:8px}
+.surprise-btn:hover{transform:scale(1.02);filter:brightness(1.08)}
+
 /* MEDALS */
 .medals-bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;justify-content:center}
 .medal{font-size:24px;cursor:default;position:relative}
@@ -581,7 +600,7 @@ loadPlayer();
 
 /* ── STATE ── */
 const T=60,TQ=10;
-let S={screen:P.name?'map':'onboard',mod:null,topic:null,score:0,streak:0,maxStreak:0,lives:3,qNum:0,q:null,answered:false,selected:null,fb:'',fbType:'',timer:T,tid:null,stars:0,narratorMsg:'',narratorState:'',_fastAns:false,newMedals:[],_selSt:null};
+let S={screen:P.name?'map':'onboard',mod:null,topic:null,score:0,streak:0,maxStreak:0,lives:3,qNum:0,q:null,answered:false,selected:null,fb:'',fbType:'',timer:T,tid:null,stars:0,narratorMsg:'',narratorState:'',_fastAns:false,newMedals:[],_selSt:null,_selMod:null};
 
 function startTimer(){
   clearInterval(S.tid);S.timer=T;
@@ -651,7 +670,14 @@ function startGame(modId,topicId){
   S={...S,screen:'game',mod:modId,topic:topicId,score:0,streak:0,maxStreak:0,lives:3,qNum:0,answered:false,selected:null,fb:'',fbType:'',stars:0,_fastAns:false,newMedals:[],narratorMsg:pick(NARRATOR_IDLE),narratorState:''};
   S.q=genQ(topicId);render();startTimer();
 }
-function goHome(){clearInterval(S.tid);S._selSt=null;S._offTrack=false;S.screen=P.name?'map':'onboard';render()}
+function goHome(){clearInterval(S.tid);S._selSt=null;S._selMod=null;S._offTrack=false;S.screen=P.name?'map':'onboard';render()}
+function toggleMod(modId){S._selMod=S._selMod===modId?null:modId;render()}
+function surpriseMe(){
+  const m=pick(MODS);
+  const t=pick(m.topics);
+  S._offTrack=true;
+  startGame(m.id,t.id);
+}
 function goTopics(modId){S.screen='topics';S.mod=modId;render()}
 
 /* ── RENDER ── */
@@ -830,6 +856,31 @@ function renderMap(app){
       <button class="play-now-btn" style="${btnGrad}" onclick="playSelected(${selIdx})">${btnLabel}</button>
       ${dailyStrip}${dailyDoneStrip}
     </div>
+    <div class="map-worlds">
+      <div class="map-worlds-title">Praticar por tema</div>
+      <div class="map-world-grid">
+        ${MODS.map(mod=>{
+          const isActive=S._selMod===mod.id;
+          return`<div class="mwcard ${mod.cls}${isActive?' active':''}" style="${isActive?'border-color:'+MOD_COLORS[mod.id]:''}" onclick="toggleMod('${mod.id}')">
+            <div class="mwcard-icon">${mod.icon}</div>
+            <div><div class="mwcard-name">${mod.name}</div><div class="mwcard-desc">${mod.desc}</div></div>
+          </div>`;
+        }).join('')}
+      </div>
+      ${S._selMod?(()=>{
+        const mod=MODS.find(x=>x.id===S._selMod);
+        const bg=MOD_BG[mod.id],bd=MOD_COLORS[mod.id],tx=MOD_TEXT[mod.id];
+        return`<div class="topics-panel">
+          ${mod.topics.map(t=>`<button class="tpbtn" style="background:${bg};border-color:${bd}55;color:${tx}" onclick="S._offTrack=true;startGame('${mod.id}','${t.id}')">
+            <span class="tpbtn-icon">${t.icon}</span>
+            <div><div class="tpbtn-name">${t.name}</div><div class="tpbtn-hint">${t.hint}</div></div>
+          </button>`).join('')}
+        </div>`;
+      })():''}
+    </div>
+
+    <button class="surprise-btn" onclick="surpriseMe()">🎲 Me Surpreenda!</button>
+
     ${medalBar}
   </div>`;
 }
