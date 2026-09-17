@@ -525,7 +525,7 @@ function genAlgoQ(tid){
   const withCarry=tid==='algo_add_c',withBorrow=tid==='algo_sub_b',isAdd=tid.startsWith('algo_add');
   const nums=isAdd?genAdd(withCarry):genSub(withBorrow);
   const strat=isAdd?addStrategy(nums.a,nums.b):subStrategy(nums.a,nums.b);
-  return{...nums,strat,type:'algo',choices:genChoices(nums.ans)};
+  return{...nums,strat,type:'algo',q:'Qual é o resultado?',choices:genChoices(nums.ans)};
 }
 function genMultQ(tid){
   const tableMap={mult_2:[2],mult_3:[3],mult_45:[4,5],mult_10:[10]};
